@@ -104,13 +104,20 @@ async function handle(req, res) {
   catch { return reply(res, { decision: 'REJECT', reason_code: 'INVALID_JSON' }, 400); }
 
   // Preflight handshake — must pass before the platform marks us active.
-  if (body && body.type === 'agent-games.preflight.v1') {
-    console.log(`[preflight] agent=${body.agent_id} nonce=${String(body.nonce).slice(0, 12)}`);
+  // The platform's own health check may label itself slightly differently from
+  // the documented type, so accept any handshake-shaped body (no `input`).
+  const type = String(body && body.type || '');
+  const isHandshake = body && !body.input &&
+    (type === 'agent-games.preflight.v1' || /preflight|health/i.test(type));
+  if (isHandshake) {
+    console.log(`[preflight] type=${type} agent=${body.agent_id} nonce=${String(body.nonce).slice(0, 12)}`);
     return reply(res, { ok: true, protocolVersion: 'v1' });
   }
 
-  if (!body || body.type !== 'agent-games.proof-gatekeeper.v1')
+  if (!body || body.type !== 'agent-games.proof-gatekeeper.v1') {
+    console.error(`[unknown] type=${type} keys=${body ? Object.keys(body).join(',') : '-'}`);
     return reply(res, { decision: 'REJECT', reason_code: 'UNKNOWN_TYPE' }, 400);
+  }
 
   const taskId = String(body.task_id || '');
   const input = body.input || {};

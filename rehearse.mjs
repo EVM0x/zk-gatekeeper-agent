@@ -40,7 +40,9 @@ async function post(payload) {
 }
 
 const vk = JSON.parse(readFileSync('/home/ubuntu/zkagent/vk.json', 'utf8'));
-const reuseRef = '0x' + 'ab'.repeat(32);
+// Fresh per run: the replay guard persists across restarts, so a fixed ref would
+// already be "seen" and the first-use case would fail for the wrong reason.
+const reuseRef = '0x' + randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
 let pass = 0, fail = 0;
 
 // preflight
