@@ -1,0 +1,22 @@
+[Unit]
+Description=zkVerify Agent Games - Proof Gatekeeper agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/zkagent
+ExecStart=/usr/bin/node /home/ubuntu/zkagent/server.mjs
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=PORT=4795
+Environment=AGENT_PATH=/agent
+StandardOutput=append:/home/ubuntu/zkagent/data/agent.log
+StandardError=append:/home/ubuntu/zkagent/data/agent.log
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
