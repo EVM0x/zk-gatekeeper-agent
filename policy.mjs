@@ -7,14 +7,17 @@ export const WITNESS = ['registeredVkHash', 'proofVkHash', 'minimum', 'publicBal
 
 const hex = (v) => {
   if (typeof v === 'number') return BigInt(v);
-  const s = String(v).trim();
-  return s.startsWith('0x') || s.startsWith('0X') ? BigInt(s) : BigInt(s);
+  return BigInt(String(v).trim());
 };
 
 // Public-input order must match the platform's: 12 inputs, commitment is the 13th signal.
 export function publicInputs(input, decision, taskId) {
   const d = decision === 'APPROVE' ? 1n : 0n;
-  const tid = BigInt('0x' + String(taskId).slice(-36).replace(/-/g, ''));
+  // A task may arrive without an id. '0x' on its own is not a BigInt, so an
+  // absent id has to reduce to a zero commitment instead of throwing the whole
+  // request away as an internal error.
+  const digits = String(taskId ?? '').slice(-36).replace(/-/g, '');
+  const tid = digits ? BigInt('0x' + digits) : 0n;
   return [input.registered_vk, input.proof_vk, input.minimum, input.public_balance,
     input.expiry_block, input.current_block, input.recipient, input.condition_recipient,
     input.amount, input.max_transfer, d, tid].map((v) => (hex(v) % FIELD).toString());
