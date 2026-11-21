@@ -80,8 +80,11 @@ const REASONS = new Set(['VK_SUBSTITUTION', 'THRESHOLD_MISMATCH', 'EXPIRED_CONDI
 
 async function handle(req, res) {
   const started = Date.now();
-  if (req.method === 'GET' && req.url === '/healthz') return reply(res, { ok: true });
-  if (req.url !== AGENT_PATH) return reply(res, { decision: 'REJECT', reason_code: 'NOT_FOUND' }, 404);
+  // req.url still carries the query string, so compare paths only: a proxy or a
+  // retry helper that appends ?source=... must not turn every task into a 404.
+  const path = req.url.split('?')[0];
+  if (req.method === 'GET' && path === '/healthz') return reply(res, { ok: true });
+  if (path !== AGENT_PATH) return reply(res, { decision: 'REJECT', reason_code: 'NOT_FOUND' }, 404);
   if (req.method !== 'POST') return reply(res, { decision: 'REJECT', reason_code: 'METHOD' }, 405);
 
   const chunks = [];
@@ -122,8 +125,10 @@ async function handle(req, res) {
   const taskId = String(body.task_id || '');
   const input = body.input || {};
 
-  // Idempotency: the platform may retry the same task.
-  if (state.tasks[taskId]) {
+  // Idempotency: the platform may retry the same task. A task that arrives with
+  // no id has nothing to be idempotent about — keyed under the empty string,
+  // every later id-less task would read the first one's answer as its own.
+  if (taskId && state.tasks[taskId]) {
     console.log(`[task] ${taskId} replayed -> cached`);
     return reply(res, state.tasks[taskId]);
   }
@@ -152,9 +157,25 @@ async function handle(req, res) {
     }
   }
 
-  if (ref) state.refs[ref] = taskId;
-  state.tasks[taskId] = out;
-  save();
+  // Only an accepted task consumes its proof transaction. A task rejected by
+  // policy never carried a usable proof, so burning its ref would lock out the
+  // honest task that submits the same transaction afterwards.
+  let dirty = false;
+  if (ref && verdict.decision === 'APPROVE') {
+    state.refs[ref] = taskId;
+    dirty = true;
+  }
+
+  // Cache only a final answer. When proving fails the platform retries, and a
+  // cached proof-less answer would hand the retry the same proof-less answer —
+  // losing the bonus for good. PROOF_REUSED is final by definition: it has no
+  // proof to submit.
+  const final = Boolean(out.proof) || !needsProof;
+  if (taskId && final) {
+    state.tasks[taskId] = out;
+    dirty = true;
+  }
+  if (dirty) save();
 
   console.log(`[task] ${taskId} ${out.decision}/${out.reason_code} proof=${Boolean(out.proof)} ${Date.now() - started}ms`);
   return reply(res, out);
