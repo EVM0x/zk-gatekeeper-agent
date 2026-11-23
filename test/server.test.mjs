@@ -290,6 +290,34 @@ test('a proof is only burned by a task that was accepted', async () => {
   } finally { s.stop(); }
 });
 
+test('a retry of a task whose proof failed is not refused as a replay', async () => {
+  // Proving fails here for want of snarkjs, and the ref is burned when the task
+  // is accepted — before the proof exists. The platform retries exactly this
+  // task, proof_tx and all. A ref-only replay check answers that retry with
+  // REJECT/PROOF_REUSED: a decision that contradicts the answer already sent,
+  // and no proof ever, because PROOF_REUSED is never proved. A retry is the same
+  // task, not a second use of the proof.
+  const s = await startServer();
+  try {
+    const ref = '0x' + 'ef'.repeat(32);
+    const body = task({ input: validInput({ proof_tx: ref }) });
+    const first = await s.post(body);
+    assert.equal(first.json.decision, 'APPROVE');
+    assert.equal(first.json.proof, undefined, 'this test needs the proof to fail');
+
+    const retry = await s.post(body);
+    assert.equal(retry.json.reason_code, first.json.reason_code,
+      'the retry of the same task was refused as PROOF_REUSED');
+    assert.equal(retry.json.decision, first.json.decision);
+
+    // the exemption is for that one task id: a different task carrying the same
+    // proof reference is still a replay
+    const other = await s.post(task({ input: validInput({ proof_tx: ref }) }));
+    assert.equal(other.json.reason_code, 'PROOF_REUSED',
+      'another task reused the same proof reference');
+  } finally { s.stop(); }
+});
+
 test('a task with no id is not answered with another task answer', async () => {
   // Both land under the empty string key, so the second one reads the first one
   // out of the cache and is told a decision about somebody else's input.
