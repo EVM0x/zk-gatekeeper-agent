@@ -135,8 +135,15 @@ async function handle(req, res) {
 
   const ref = String(input.proof_tx || '').toLowerCase();
   let verdict;
-  if (ref && state.refs[ref]) {
-    // A genuine proof that was already accepted does not gain re-entry.
+  // A genuine proof that was already accepted does not gain re-entry — but a
+  // retry of the task that accepted it is the same task, not a second use. The
+  // ref is burned before the proof exists (proving can still fail below), so a
+  // ref-only check answers the platform's retry with PROOF_REUSED: a decision
+  // that contradicts the answer already sent, and no proof ever, because
+  // PROOF_REUSED is never proved. An id-less task has no id to match on, so it
+  // gets no such exemption.
+  const sameTask = Boolean(taskId) && state.refs[ref] === taskId;
+  if (ref && state.refs[ref] && !sameTask) {
     verdict = { decision: 'REJECT', reason_code: 'PROOF_REUSED' };
   } else {
     verdict = decide(input);
